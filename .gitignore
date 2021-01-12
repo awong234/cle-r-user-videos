@@ -1,1 +1,4 @@
 .Rproj.user
+client_secret.json
+.vscode
+.Renviron
