@@ -1,24 +1,27 @@
+# Setup ------------------------------------------------------------------------
+
 library(jsonlite)
 library(dplyr)
 library(rvest)
+library(keyring)
+library(reticulate)
 
-# Meetup API; get past events
+# Meetup API; get past events --------------------------------------------------
 
 url = "https://api.meetup.com/Cleveland-UseR-Group/events/?&status=past"
+html = read_html(url)
+content = html %>%
+    # Get the text out
+    xml2::xml_find_all('//text()') %>%
+    # Convert to character
+    as.character() %>% paste0(collapse = '') %>%
+    # Convert from character json to list
+    parse_json()
 
-res = curl::curl_fetch_memory(url)
-content = parse_json(rawToChar(res$content))
 dates = lapply(content, function(x) x$local_date) %>% do.call(c, .) %>% as.Date()
 names = lapply(content, function(x) x$name) %>% do.call(c, .)
 links = lapply(content, function(x) x$link) %>% do.call(c, .)
-desc  = lapply(content, function(x) {
-    obj = xml2::read_html(x$description) %>%
-        xml2::xml_find_all(xpath = '//p') %>%
-        xml2::xml_text()
-    obj = paste0(obj, collapse = '\n')
-    return(obj)
-})
-desc = do.call(c, desc)
+desc  = lapply(content, function(x) x$description) %>% do.call(c, .)
 
 df = tibble(
     names,
@@ -27,4 +30,6 @@ df = tibble(
     desc
 )
 
-# Try to extract the author/presenter name from the description.
+# Remove the cafe's
+df = df %>%
+    filter(names != 'Virtual R Café')
