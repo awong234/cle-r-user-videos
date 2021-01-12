@@ -1,0 +1,5 @@
+library(dplyr)
+library(rvest)
+library(xml2)
+library(jsonlite)
+library(purrr)
