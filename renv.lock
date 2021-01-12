@@ -8,11 +8,6 @@
       }
     ]
   },
-  "Python": {
-    "Version": "3.8.0",
-    "Type": "conda",
-    "Name": "rusergroup"
-  },
   "Packages": {
     "R6": {
       "Package": "R6",
