@@ -36,7 +36,7 @@ get_meetup_metadata = function() {
     return(meetup_info_df)
 }
 
-get_youtube_videos_list = function(baseurl) {
+get_youtube_videos_list = function(url) {
     get_item_detail = function(resp, detail) {
         out = map(resp$items, ~.x[[detail]])
         out[sapply(out, is.null)] = NA_character_
