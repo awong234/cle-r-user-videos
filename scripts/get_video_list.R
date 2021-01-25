@@ -3,6 +3,9 @@
 source('libraries.R')
 source('R/functions.R')
 
+# Make output dir
+if (! dir.exists(here::here('output'))) dir.create(here::here('output'))
+
 # Memoise so as to avoid repetitive API calls when not required
 get_youtube_videos_list = memoise::memoise(f = get_youtube_videos_list, cache = memoise::cache_filesystem(path = 'cache'))
 
