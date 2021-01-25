@@ -23,15 +23,15 @@ get_meetup_metadata = function() {
     desc  = lapply(content, function(x) x$description) %>% do.call(c, .)
 
     meetup_info_df = tibble(
-        names,
-        dates,
-        links,
-        desc
+        meetup_name = names,
+        meetup_date = dates,
+        meetup_link = links,
+        meetup_desc  = desc
     )
 
     # Remove the cafe's
     meetup_info_df = meetup_info_df %>%
-        filter(names != 'Virtual R Café')
+        filter(meetup_name != 'Virtual R Café')
 
     return(meetup_info_df)
 }
@@ -58,12 +58,12 @@ get_youtube_videos_list = function(url) {
         kinds         = c(kinds, get_item_detail(resp, c('id', 'kind')))
     }
     df = data.frame(
-        titles        = titles,
-        publish_times = publish_times,
-        video_ids     = video_ids
+        youtube_title        = titles,
+        youtube_publish_time = publish_times,
+        youtube_video_id     = video_ids
     )
     video_links = paste0('http://www.youtube.com/watch?v=', video_ids)
-    df$links = video_links
+    df$youtube_link = video_links
     # keep only the videos
     df = df[kinds == 'youtube#video', ]
 
