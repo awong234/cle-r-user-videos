@@ -13,7 +13,10 @@ get_youtube_videos_list = memoise::memoise(f = get_youtube_videos_list, cache = 
 
 # Meetup
 
-meetup_data = get_meetup_metadata() %>% filter(names != 'Virtual R Café')
+meetup_data = get_meetup_metadata() %>% filter(meetup_name != 'Virtual R Café') %>%
+    mutate(meetup_date = as.Date(meetup_date))
+
+saveRDS(meetup_data, file = 'output/meetup_api_data.RDS')
 
 # Youtube
 
@@ -27,29 +30,52 @@ baseurl = sprintf('https://www.googleapis.com/youtube/v3/search?key=%s&channelId
 
 youtube_vids = get_youtube_videos_list(baseurl)
 
-# Merge data -- the names are similar but not exact. Monogram and bigram matching should do the trick.
+saveRDS(youtube_vids, file = 'output/youtube_api_data_unmatched.RDS')
 
-meetup_onegrams = tokenize_ngrams(meetup_data$names, n = 1, lowercase = TRUE, stopwords = c(stop_words$word))
-meetup_bigrams = tokenize_ngrams(meetup_data$names, n = 2, lowercase = TRUE)
-youtube_onegrams = tokenize_ngrams(youtube_vids$titles, n = 1, lowercase = TRUE, stopwords = c(stop_words$word))
-youtube_bigrams = tokenize_ngrams(youtube_vids$titles, n = 1, lowercase = TRUE, stopwords = c(stop_words$word))
+# Youtube vid titles have the meetup dates; extract those
 
-meetup_matches = vector(mode = 'integer', length = length(meetup_onegrams))
-matchorder = cross2(meetup_data$names, youtube_vids$titles)
-meetup_index = map_int(matchorder, ~match(.x[[1]], meetup_data$names))
+title_has_date = grepl(youtube_vids$youtube_title, pattern = "\\d+/\\d+/\\d{4}")
+
+youtube_vids$meetup_date = NA
+
+youtube_vids$meetup_date[title_has_date] = regmatches(
+    x = youtube_vids$youtube_title,
+    m = regexpr(text = youtube_vids$youtube_title, pattern = '\\d+/\\d+/\\d{4}', perl = TRUE)
+)
+
+youtube_vids$meetup_date = as.Date(youtube_vids$meetup_date, format = '%m/%d/%Y')
+
+# Try to join by date first -- join in this order because there may be more than
+# 1 vid per meetup, but never more than 1 meetup per vid
+
+youtube_vids = youtube_vids %>%
+    left_join(meetup_data, by = c('meetup_date'))
+
+# For the remaining that have no match, attempt n-gram matching
+matched_vids = youtube_vids %>% filter(! is.na(meetup_name))
+nonmatched_vids = youtube_vids %>% filter(is.na(meetup_name))
+nonmatched_meetups = anti_join(meetup_data, youtube_vids, by = c("meetup_name", "meetup_date"))
+
+meetup_onegrams = tokenize_ngrams(nonmatched_meetups$meetup_name, n = 1, lowercase = TRUE, stopwords = c(stop_words$word))
+meetup_bigrams = tokenize_ngrams(nonmatched_meetups$meetup_name, n = 2, lowercase = TRUE)
+youtube_onegrams = tokenize_ngrams(nonmatched_vids$youtube_title, n = 1, lowercase = TRUE, stopwords = c(stop_words$word))
+youtube_bigrams = tokenize_ngrams(nonmatched_vids$youtube_title, n = 1, lowercase = TRUE, stopwords = c(stop_words$word))
+
+matchorder = cross2(nonmatched_meetups$meetup_name, nonmatched_vids$youtube_title)
+meetup_index = map_int(matchorder, ~match(.x[[2]], nonmatched_vids$youtube_title))
 matchlist_1 = cross2(meetup_onegrams, youtube_onegrams)
 matchlist_2 = cross2(meetup_bigrams, youtube_bigrams)
-tmp1 = map_int(matchlist_1, function(x) {
+monogram_matches = map_int(matchlist_1, function(x) {
     meetup_grams = x[[1]]
     youtube_grams = x[[2]]
     meetup_matches = rep(0, length(meetup_grams))
     for (i in meetup_grams) {
-        meetup_matches[i] = sum(i == youtube_grams) %>% as.integer()
+        meetup_matches[i] = sum(i == youtube_grams)
     }
     return(as.integer(sum(meetup_matches)))
 })
 
-tmp2 = map_int(matchlist_2, function(x) {
+bigram_matches = map_int(matchlist_2, function(x) {
     meetup_grams = x[[1]]
     youtube_grams = x[[2]]
     meetup_matches = rep(0, length(meetup_grams))
@@ -60,16 +86,32 @@ tmp2 = map_int(matchlist_2, function(x) {
     return(out)
 })
 
-matchvalues = (tmp1 + tmp2)
+matchvalues = (monogram_matches + bigram_matches)
 
-# For each meetup desc, take the greatest number
-maxmatches = vector(mode = integer, length = nrow(meetup_data))
-for (i in seq_along(meetup_matches)) {
-    message(meetup_data$names[i])
+# For each video, take the max matching value and assume vid belongs to that one.
+for (i in 1:nrow(nonmatched_vids)) {
+    # message(nonmatched_vids$youtube_title[i], ", ",  i)
     ind = which(meetup_index == i)
     this_meetup = matchorder[ind]
     this_matches = matchvalues[ind]
     best_match_ind = ind[which.max(this_matches)]
-    print(matchorder[best_match_ind])
+    # print(matchorder[best_match_ind])
+    this_youtube_title = matchorder[best_match_ind][[1]][[2]]
+    this_data_row = nonmatched_vids$youtube_title == this_youtube_title
+    matching_meetup_title = matchorder[best_match_ind][[1]][[1]]
+    matching_meetup_ind = match(matching_meetup_title, nonmatched_meetups$meetup_name)
+    matching_meetup_data = nonmatched_meetups[matching_meetup_ind, ]
+    matching_meetup_data$youtube_title = this_youtube_title
+    nonmatched_vids$meetup_name[this_data_row] = matching_meetup_data$meetup_name
+    nonmatched_vids$meetup_date[this_data_row] = matching_meetup_data$meetup_date
+    nonmatched_vids$meetup_link[this_data_row] = matching_meetup_data$meetup_link
+    nonmatched_vids$meetup_desc[this_data_row] = matching_meetup_data$meetup_desc
 }
 
+youtube_vids = bind_rows(
+    nonmatched_vids,
+    matched_vids
+)
+
+saveRDS(youtube_vids, 'output/youtube_videos_with_matches.RDS')
+# END
